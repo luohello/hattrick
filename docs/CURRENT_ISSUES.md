@@ -19,6 +19,7 @@
 | --- | --- |
 | GEANT 从 K=4 改为论文使用的 K=8 | `run_geant_train_first.sh`、`run_geant_test_both.sh`、两个 PowerShell 基线脚本、结果汇总脚本 |
 | Gurobi 使用 barrier、aggressive presolve、关闭 crossover | `frameworks/gurobi_refactored.py` |
+| Gurobi 仅在数值状态 12 时启用稳定性重试，并累计全部求解时间 | `frameworks/gurobi_refactored.py` |
 | K=8 与旧 K=4 的 SWAN 分流结果隔离 | `frameworks/gurobi_utils.py` |
 | 训练集只加载一次，不再每个 epoch 重建 | `run_hattrick.py` |
 | 异常检测改为按需开启，移除逐 batch CUDA cache 清理 | `run_hattrick.py`、`utils/training_utils.py` |

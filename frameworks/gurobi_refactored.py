@@ -81,6 +81,37 @@ elif props.gur_mode == "swan":
     swan, runtime_file = open_relevant_files(props, results_path, num_cluster)
 
 num_snapshots_in_cluster = 0
+
+
+def optimize_with_numerical_retry(model, snapshot_name, snapshot_index):
+    """Solve with the paper settings, retrying only numerical failures."""
+    total_runtime = 0.0
+    model.optimize()
+    total_runtime += model.Runtime
+
+    if model.Status == GRB.NUMERIC:
+        print(
+            f"Numerical retry with BarHomogeneous=1: "
+            f"{snapshot_name} (index {snapshot_index})"
+        )
+        model.reset()
+        model.setParam("BarHomogeneous", 1)
+        model.optimize()
+        total_runtime += model.Runtime
+
+    if model.Status == GRB.NUMERIC:
+        print(
+            f"Numerical retry with dual simplex: "
+            f"{snapshot_name} (index {snapshot_index})"
+        )
+        model.reset()
+        model.setParam("Method", 1)
+        model.optimize()
+        total_runtime += model.Runtime
+
+    return total_runtime
+
+
 for i, snapshot in tqdm.tqdm(enumerate(manifest[start_index:end_index]), total=len(manifest[start_index:end_index])):
     
     index = start_index + i
@@ -155,7 +186,7 @@ for i, snapshot in tqdm.tqdm(enumerate(manifest[start_index:end_index]), total=l
             solver.add_optimality_constraints(optimal_values_high_class[num_snapshots_in_cluster], optimal_values_mid_class[num_snapshots_in_cluster], objs)
     solver.add_capacity_constraints(objs, cluster_info.paths_to_edges)
     solver.define_objective(objs)
-    solver.model.optimize()
+    solve_runtime = optimize_with_numerical_retry(solver.model, tm_filename, index)
     if solver.model.status == GRB.status.OPTIMAL or solver.model.status == GRB.OPTIMAL:
         if props.pred == 0:
             optimal_values.write(str(solver.model.ObjVal)+"\n")
@@ -195,7 +226,7 @@ for i, snapshot in tqdm.tqdm(enumerate(manifest[start_index:end_index]), total=l
                     solver.simulate(cluster_info.paths_to_edges, num_cluster, num_snapshots_in_cluster, objs, split_ratios)
                 
         num_snapshots_in_cluster += 1
-        runtime_file.write(str(solver.model.Runtime)+"\n")
+        runtime_file.write(str(solve_runtime)+"\n")
         # print(solver.model.Runtime, )
         solver.dispose_model(index, objs[prio-1])
         del solver
