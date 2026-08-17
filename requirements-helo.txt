@@ -1,0 +1,15 @@
+# Hattrick runtime for the remote `helo` venv.
+# Target: Linux x86_64, Python 3.11, PyTorch 2.5.1, CUDA 12.4.
+
+--extra-index-url https://download.pytorch.org/whl/cu124
+--find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
+
+torch==2.5.1+cu124
+torch-scatter==2.1.2+pt25cu124
+torch-geometric==2.6.1
+
+networkx==3.4.2
+numpy==2.2.3
+scipy==1.14.1
+pandas==2.2.3
+tqdm==4.66.5

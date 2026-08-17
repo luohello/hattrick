@@ -1,0 +1,3 @@
+# Optional: required only for generating optimal values and running
+# the SWAN/Best_MC (Flexile) optimization baselines.
+gurobipy>=10,<14

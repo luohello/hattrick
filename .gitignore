@@ -1,0 +1,42 @@
+# User-local configuration and credentials
+profile.md
+profile.local.md
+*.lic
+gurobi.log
+mail.txt
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+helo/
+
+# Experiment data and generated predictions
+traffic_matrices/*/
+traffic_matrices/*.zip
+traffic_matrices/*.tar
+traffic_matrices/*.tar.gz
+
+# Generated optimization/model artifacts
+results/
+output/
+logs/
+hp_search/
+models/
+optimizers/
+hattrick_*.pkl
+topologies/paths/*.pkl
+topologies/paths_dict/*.pkl
+topologies/padded_edge_ids_per_path/*.pkl
+manifest/*bak*
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
