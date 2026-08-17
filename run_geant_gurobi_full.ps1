@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ManifestPath = Join-Path $ProjectRoot "manifest\geant_manifest.txt"
 $SolverPath = Join-Path $ProjectRoot "frameworks\gurobi_refactored.py"
-$ResultsRoot = Join-Path $ProjectRoot "results\geant\4sp"
+$ResultsRoot = Join-Path $ProjectRoot "results\geant\8sp"
 $StateRoot = Join-Path $ResultsRoot ".full_solve_state"
 $ExpectedSnapshots = 10772
 
@@ -83,7 +83,7 @@ foreach ($Stage in $Stages) {
 
     $Arguments = @(
         $SolverPath,
-        "--num_paths_per_pair", "4",
+        "--num_paths_per_pair", "8",
         "--opt_start_idx", "0",
         "--opt_end_idx", "$ExpectedSnapshots",
         "--topo", "geant",

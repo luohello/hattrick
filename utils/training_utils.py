@@ -4,7 +4,6 @@ from torch.utils.data import DataLoader
 from .build_dataset_within_cluster import DM_Dataset_within_Cluster, custom_collate
 # from .proj_utils import *
 from .robust_proj_utils import project_gradients_one_optimizer_robust, assign_gradients_and_step
-import time
 
 def count_parameters(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -28,7 +27,6 @@ def train(epoch, n_epochs, model, props, ds_list, dl_list, optimizers):
         move_to_device(train_dataset.original_pos_edge_ids_dict_tensor, props.device)
         model.train()
         with tqdm(train_dl) as tepoch:
-            torch.cuda.empty_cache()
             loss1_sum = loss1_count = loss2_sum = loss2_count = loss3_sum = loss3_count = loss4_sum = loss4_count = loss5_sum = loss5_count = loss6_sum = loss6_count = 0
             for i, inputs in enumerate(tepoch):
                 tepoch.set_description(f"Epoch {epoch+1}/{n_epochs}")
@@ -58,14 +56,10 @@ def train(epoch, n_epochs, model, props, ds_list, dl_list, optimizers):
                     tms3_pred = tms3_pred.to(device=props.device, dtype=props.dtype)
                     # with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
 
-                    start_total = time.time()
-                    start = time.time()
                     output = model(props, node_features, train_dataset.edge_index, capacities,
                         train_dataset.padded_edge_ids_per_path,
                         tms1, tms1_pred, tms2, tms2_pred, tms3, tms3_pred, train_dataset.pte,
                         train_dataset.edge_ids_dict_tensor, train_dataset.original_pos_edge_ids_dict_tensor)
-                    end = time.time()
-                    # print("Time taken for forward pass: ", end - start)
                 # If prediction is off, feed the actual matrix as predicted matrix
                 else:
                     output = model(props, node_features, train_dataset.edge_index, capacities,
@@ -75,7 +69,6 @@ def train(epoch, n_epochs, model, props, ds_list, dl_list, optimizers):
                 
                 edges_util_tm1_1, edges_util_tm2_2, edges_util_tm3_3, edges_util_tm1_3, edges_util_tm2_3, all_traffic = output
                 # with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                start = time.time()
                 loss1, loss1_val = loss_mlu(edges_util_tm1_1, opt1)
                 loss2, loss2_val = loss_mlu(edges_util_tm2_2, opt2)
                 loss3, loss3_val = loss_mf(all_traffic, opt3_mf)
@@ -83,34 +76,23 @@ def train(epoch, n_epochs, model, props, ds_list, dl_list, optimizers):
                 loss5, loss5_val = loss_mlu(edges_util_tm1_3, opt1)
                 loss6, loss6_val = loss_mlu(edges_util_tm2_3, opt2)
 
-                end = time.time()
-                # print("Time taken for loss calculation: ", end - start)
                 if props.additive_loss:
                     loss = 10*loss1 + 0.1*loss2 + 0.01*loss3 + 0.001*loss4
                     loss.backward()
                     c1_optimizer.step()
                     model.zero_grad(set_to_none=True)
                 else:
-                    start = time.time()
-                    final_grads_mb, shapes2, flattened_grads1, flattened_grads_c2, flattened_grads_c3, c1_optimizer = \
+                    final_grads_mb, shapes2, _, _, _, c1_optimizer = \
                                     project_gradients_one_optimizer_robust(model, loss1, loss2, loss3, loss4, c1_optimizer)
-                    end = time.time()
-                    end_total = time.time()
-                    # print("Time taken for backward pass: ", end - start)
-                    # print("Time taken for total: ", end_total - start_total)
-                    peak_memory = torch.cuda.max_memory_allocated() / (1024 ** 3)
-                    # print(f"\nPeak GPU memory usage: {peak_memory:.4f} GB")
                     
                     if (i+1)%props.round == 0 or (i+1) == len(train_dl):
                         final_grads += final_grads_mb
                         assign_gradients_and_step(model, final_grads, c1_optimizer, shapes2)
-                        torch.cuda.empty_cache()
                         final_grads[:] = 0
                     else:
                         final_grads += final_grads_mb
                         model.zero_grad(set_to_none=True)
 
-                torch.cuda.empty_cache()
                 loss1_sum += loss1_val
                 loss1_count += 1
                 loss2_sum += loss2_val
@@ -137,22 +119,16 @@ def train(epoch, n_epochs, model, props, ds_list, dl_list, optimizers):
         
 # Define the loss
 def loss_mlu(y_pred_batch, y_true_batch):
-    losses = []
-    loss_vals = []
     batch_size = y_pred_batch.shape[0]
-    for i in range(batch_size):
-        y_pred = y_pred_batch[[i]]
-        opt = y_true_batch[[i]]
-        max_cong = torch.max(y_pred)
-        
-        loss = 1.0 - max_cong if max_cong.item() == 0.0 else max_cong/max_cong.item()
-        loss_val = 1.0 if opt == 0.0 else max_cong.item() / opt.item()
-        losses.append(loss)
-        loss_vals.append(loss_val)
-    ret = sum(losses) / len(losses)
-    ret_val = sum(loss_vals) / len(loss_vals)
-    
-    return ret, ret_val
+    max_cong = y_pred_batch.reshape(batch_size, -1).amax(dim=1)
+    detached_max = max_cong.detach()
+    normalizer = torch.where(detached_max == 0.0, torch.ones_like(detached_max), detached_max)
+    opt = y_true_batch.reshape(batch_size, -1)[:, 0]
+    opt_normalizer = torch.where(opt == 0.0, torch.ones_like(opt), opt)
+
+    losses = torch.where(detached_max == 0.0, 1.0 - max_cong, max_cong / normalizer)
+    loss_vals = torch.where(opt == 0.0, torch.ones_like(detached_max), detached_max / opt_normalizer)
+    return losses.mean(), loss_vals.mean().item()
 
 
 def create_dataloaders(props, batch_size, training = True, shuffle = True):
@@ -181,20 +157,16 @@ def move_to_device(dictionary, device="cpu"):
 
 
 def loss_mf(y_pred_batch, y_true_batch):
-    losses = []
-    loss_vals = []
     batch_size = y_pred_batch.shape[0]
-    for i in range(batch_size):
-        y_pred = y_pred_batch[[i]]
-        opt = y_true_batch[[i]]
-        total_flow = torch.sum(y_pred)
-        loss = -total_flow if total_flow.item() == 0.0 else -total_flow/total_flow.item()
-        loss_val = 1.0 if opt == 0.0 else total_flow.item() / opt.item()
-        losses.append(loss)
-        loss_vals.append(loss_val)
-    ret = sum(losses) / len(losses)
-    ret_val = sum(loss_vals) / len(loss_vals)
-    return ret, ret_val
+    total_flow = y_pred_batch.reshape(batch_size, -1).sum(dim=1)
+    detached_flow = total_flow.detach()
+    normalizer = torch.where(detached_flow == 0.0, torch.ones_like(detached_flow), detached_flow)
+    opt = y_true_batch.reshape(batch_size, -1)[:, 0]
+    opt_normalizer = torch.where(opt == 0.0, torch.ones_like(opt), opt)
+
+    losses = torch.where(detached_flow == 0.0, -total_flow, -total_flow / normalizer)
+    loss_vals = torch.where(opt == 0.0, torch.ones_like(detached_flow), detached_flow / opt_normalizer)
+    return losses.mean(), loss_vals.mean().item()
     
 
 def validate(model, props, val_ds_list, val_dl_list):
@@ -227,7 +199,7 @@ def validate(model, props, val_ds_list, val_dl_list):
         val_avg_loss2 = sum(val_avg_loss2) / len(val_avg_loss2)
         val_avg_loss3 = sum(val_avg_loss3) / len(val_avg_loss3)
         
-        all_traffic = sum(all_traffic) / len(all_traffic)
+        all_traffic = sum(all_traffic_list) / len(all_traffic_list)
                         
             
         return val_avg_loss1, val_avg_loss2, val_avg_loss3, all_traffic
@@ -242,6 +214,10 @@ def _validate(model, props, val_ds, val_dl):
         with tqdm(val_dl) as vals:
             for i, inputs in enumerate(vals):
                 node_features, capacities, tms1, tms1_pred, tms2, tms2_pred, tms3, tms3_pred, opt1, opt2, opt3, opt1_mf, opt2_mf, opt3_mf, snapshots  = inputs
+
+                if not props.dynamic:
+                    node_features = node_features[:1]
+                    capacities = capacities[:1]
                 
                 node_features = node_features.to(device=props.device, dtype=props.dtype)
                 capacities = capacities.to(device=props.device, dtype=props.dtype)

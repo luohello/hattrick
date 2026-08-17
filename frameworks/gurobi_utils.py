@@ -63,7 +63,10 @@ class GurobiModel:
             self.pred_type = self.props.pred_type
         else:
             self.pred_type = "gt" # ground truth
-        self.sr_path = f"{parent_dir}/../scratch/split_ratios/{self.props.topo}/{self.props.gur_mode}/{self.pred_type}"
+        self.sr_path = (
+            f"{parent_dir}/../scratch/split_ratios/{self.props.topo}/"
+            f"{self.props.num_paths_per_pair}sp/{self.props.gur_mode}/{self.pred_type}"
+        )
         self.parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.results_path = f"{parent_dir}/results/{props.topo}/{props.num_paths_per_pair}sp"
         

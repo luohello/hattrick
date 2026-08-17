@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--topology", default="geant")
-    parser.add_argument("--num-paths", type=int, default=4)
+    parser.add_argument("--num-paths", type=int, default=8)
     parser.add_argument("--cluster", type=int, default=0)
     parser.add_argument("--test-start", type=int, default=8618)
     parser.add_argument("--test-end", type=int, default=10772)

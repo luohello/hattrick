@@ -139,10 +139,10 @@ for i, snapshot in tqdm.tqdm(enumerate(manifest[start_index:end_index]), total=l
     solver = GurobiModel(props, current_sp, props.gur_mode)
     solver.model.setParam("OutputFlag", 0)
     solver.model.setParam("NumericFocus", 3)
-    solver.model.setParam("FeasibilityTol", 1e-6)  # Default is 1e-9
-    # solver.model.setParam('Method', 2)       # Interior-point
-    # solver.model.setParam('Presolve', 2)     # Aggressive presolve
-    # solver.model.setParam('Crossover', 0)    # Disable crossover
+    solver.model.setParam("FeasibilityTol", 1e-6)
+    solver.model.setParam("Method", 2)       # Barrier method, matching the paper.
+    solver.model.setParam("Presolve", 2)     # Aggressive presolve.
+    solver.model.setParam("Crossover", 0)    # Disable crossover.
             
     solver.add_variables(objs, index)
     solver.add_mlu_variables(objs)

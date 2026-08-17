@@ -8,10 +8,13 @@ Set-StrictMode -Version Latest
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SolverPath = Join-Path $ProjectRoot "frameworks\gurobi_refactored.py"
 $ManifestPath = Join-Path $ProjectRoot "manifest\geant_manifest.txt"
-$ResultsDir = Join-Path $ProjectRoot "results\geant\4sp\0"
+$ResultsDir = Join-Path $ProjectRoot "results\geant\8sp\0"
 $StateDir = Join-Path $ResultsDir ".baseline_state"
-$SwanSplitDir = Join-Path (Split-Path -Parent $ProjectRoot) "scratch\split_ratios\geant\swan\esm"
-$ExpectedSnapshots = 10772
+$SwanSplitDir = Join-Path (Split-Path -Parent $ProjectRoot) "scratch\split_ratios\geant\8sp\swan\esm"
+$TotalSnapshots = 10772
+$TestStart = 8618
+$TestEnd = 10772
+$ExpectedSnapshots = $TestEnd - $TestStart
 $ExpectedSimulationLines = 6 * $ExpectedSnapshots
 
 function Get-LineCount {
@@ -43,8 +46,8 @@ if (-not (Test-Path -LiteralPath "$env:USERPROFILE\gurobi.lic")) {
 }
 
 $ManifestCount = Get-LineCount -Path $ManifestPath
-if ($ManifestCount -ne $ExpectedSnapshots) {
-    throw "Expected $ExpectedSnapshots GEANT manifest rows, found $ManifestCount"
+if ($ManifestCount -ne $TotalSnapshots) {
+    throw "Expected $TotalSnapshots GEANT manifest rows, found $ManifestCount"
 }
 
 foreach ($ClassId in 1..3) {
@@ -52,8 +55,8 @@ foreach ($ClassId in 1..3) {
         $DirectoryName = "geant_$ClassId$Suffix"
         $TrafficDir = Join-Path $ProjectRoot "traffic_matrices\$DirectoryName"
         $TrafficCount = Get-PickleCount -Path $TrafficDir
-        if ($TrafficCount -ne $ExpectedSnapshots) {
-            throw "Expected $ExpectedSnapshots matrices in $DirectoryName, found $TrafficCount"
+        if ($TrafficCount -ne $TotalSnapshots) {
+            throw "Expected $TotalSnapshots matrices in $DirectoryName, found $TrafficCount"
         }
     }
 }
@@ -177,7 +180,7 @@ $env:PYTHONUNBUFFERED = "1"
 $RunStarted = Get-Date
 Write-Output "[$($RunStarted.ToString('s'))] GEANT baseline run started"
 Write-Output "Project: $ProjectRoot"
-Write-Output "Snapshots: $ExpectedSnapshots"
+Write-Output "Test interval: [$TestStart, $TestEnd) ($ExpectedSnapshots snapshots)"
 
 foreach ($Stage in $Stages) {
     $DoneMarker = Join-Path $StateDir "$($Stage.Name).done"
@@ -198,9 +201,9 @@ foreach ($Stage in $Stages) {
 
     $Arguments = @(
         $SolverPath,
-        "--num_paths_per_pair", "4",
-        "--opt_start_idx", "0",
-        "--opt_end_idx", "$ExpectedSnapshots",
+        "--num_paths_per_pair", "8",
+        "--opt_start_idx", "$TestStart",
+        "--opt_end_idx", "$TestEnd",
         "--topo", "geant",
         "--framework", "gurobi",
         "--pred", "1",

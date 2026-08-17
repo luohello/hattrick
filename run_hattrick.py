@@ -4,7 +4,6 @@ import os
 import numpy as np
 import torch
 import random
-torch.autograd.set_detect_anomaly(True)
 seed = 490
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
@@ -34,6 +33,7 @@ print("Current Date and Time: ", formatted_date_time)
 props = parse_args(sys.argv[1:])
 props.device = device
 props_geant = copy.deepcopy(props)
+torch.autograd.set_detect_anomaly(bool(props.detect_anomaly))
 
 if props.dtype.lower() == "float32":
     props.dtype = torch.float32
@@ -93,7 +93,9 @@ if props.mode.lower() == "train":
     model.train()
     # create the training and validation DataLoaders
     ds_list, dl_list = create_dataloaders(props, batch_size, training = True, shuffle = True)
-    val_ds_list, val_dl_list = create_dataloaders(props, 1, training = False, shuffle = False)
+    val_ds_list, val_dl_list = create_dataloaders(
+        props, props.validation_batch_size, training=False, shuffle=False
+    )
     
     
     if props.initial_training == 1:
@@ -160,7 +162,6 @@ if props.mode.lower() == "train":
         
     for epoch in range(n_epochs):
         model.train()
-        ds_list, dl_list = create_dataloaders(props, batch_size, training = True, shuffle = True)
         train(epoch, n_epochs, model, props, ds_list, dl_list, optimizers)
         # Iterate over validation clusters
         model.eval()
@@ -171,14 +172,10 @@ if props.mode.lower() == "train":
             val1_loss = val_avg_loss1
             val2_loss = val_avg_loss2
             val3_loss = val_avg_loss3
-            try:
-                x = [k for k in os.listdir(f"{hp_path}") if string in k]
-                os.remove(f"{hp_path}/{x[0]}")
-            except:
-                print("What is wrong with you bro!?")
-                pass
+            for checkpoint_name in [name for name in os.listdir(hp_path) if string in name]:
+                os.remove(os.path.join(hp_path, checkpoint_name))
             torch.save(model, f'{hp_path}/{round(val_avg_loss1, 7)}_{round(val_avg_loss2, 7)}_{round(val_avg_loss3, 7)}_{round(all_traffic, 7)}_{string}_.pkl')
-        torch.save(model, f"hattrick_{props.topo}_{props.num_paths_per_pair}sp.pkl")
+            torch.save(model, f"hattrick_{props.topo}_{props.num_paths_per_pair}sp.pkl")
         torch.save(model, f'{models_path}/{string}.pkl')
         torch.save(c1_optimizer.state_dict(), f'{optimizer_path}/{string}.pkl')
         
@@ -217,7 +214,9 @@ elif props.mode.lower() == "test": #test
                 opt2_mf = opt2_mf.to(device=device, dtype=props.dtype)
                 opt3_mf = opt3_mf.to(device=device, dtype=props.dtype)
 
-                start = time.time()
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
+                start = time.perf_counter()
                 # If prediction is on, feed the predicted matrix
                 if props.pred:
                     tms1_pred = tms1_pred.to(device=props.device, dtype=props.dtype)
@@ -234,7 +233,9 @@ elif props.mode.lower() == "test": #test
                             test_dataset.padded_edge_ids_per_path,
                             tms1, tms1, tms2, tms2, tms3, tms3, test_dataset.pte,
                             test_dataset.edge_ids_dict_tensor, test_dataset.original_pos_edge_ids_dict_tensor)
-                end = time.time()
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
+                end = time.perf_counter()
                 runtimes.write(str(end - start) + "\n")
                 if props.metric == "mlu" and not props.sim_mf_mlu:
                     c1_edge_utils, c2_edge_utils, c3_edge_utils = output

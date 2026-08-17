@@ -13,7 +13,8 @@ python run_hattrick.py \
   --mode train \
   --epochs 60 \
   --batch_size 64 \
-  --num_paths_per_pair 4 \
+  --validation_batch_size 64 \
+  --num_paths_per_pair 8 \
   --num_transformer_layers 3 \
   --num_gnn_layers 3 \
   --num_mlp1_hidden_layers 2 \
@@ -34,5 +35,6 @@ python run_hattrick.py \
   --initial_training 1 \
   --violation 1 \
   --checkpoint 2 \
+  --detect_anomaly 0 \
   --dtype float32 \
   --meta_learning 0

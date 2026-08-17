@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Run both GEANT evaluations with the trained 4-path Hattrick model:
+# Run both GEANT evaluations with the paper-aligned 8-path Hattrick model:
 #   1) normalized MLU
 #   2) admitted-flow / fulfill ratio
 
@@ -24,7 +24,7 @@ export PYTHONUNBUFFERED=1
 TEST_START="${TEST_START:-8618}"
 TEST_END="${TEST_END:-10772}"
 TEST_CLUSTER="${TEST_CLUSTER:-0}"
-NUM_PATHS="${NUM_PATHS:-4}"
+NUM_PATHS="${NUM_PATHS:-8}"
 PRED_TYPE="${PRED_TYPE:-esm}"
 
 RESULT_DIR="results/geant/${NUM_PATHS}sp/${TEST_CLUSTER}"
