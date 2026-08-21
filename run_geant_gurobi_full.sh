@@ -56,11 +56,22 @@ for index in "${!stage_names[@]}"; do
     fi
     rm -f "$marker"
 
+    start_idx=0
+    resume_args=()
+    if [[ "$count" -gt 0 && "$count" -lt "$EXPECTED_SNAPSHOTS" ]]; then
+        start_idx="$count"
+        resume_args=(--resume_opt)
+        echo "[$(date -Is)] Resuming oracle stage $name from snapshot $start_idx"
+    elif [[ "$count" -gt "$EXPECTED_SNAPSHOTS" ]]; then
+        echo "Oracle stage $name has $count rows; expected at most $EXPECTED_SNAPSHOTS" >&2
+        exit 1
+    fi
+
     read -r -a objective_args <<< "${objectives[$index]}"
     echo "[$(date -Is)] Starting oracle stage: $name"
     python frameworks/gurobi_refactored.py \
         --num_paths_per_pair "$NUM_PATHS" \
-        --opt_start_idx 0 \
+        --opt_start_idx "$start_idx" \
         --opt_end_idx "$EXPECTED_SNAPSHOTS" \
         --topo geant \
         --framework gurobi \
@@ -70,7 +81,8 @@ for index in "${!stage_names[@]}"; do
         --priority "${priorities[$index]}" \
         --objs "${objective_args[@]}" \
         --gur_mode flexile \
-        --tol 0.000001
+        --tol 0.000001 \
+        "${resume_args[@]}"
 
     count="$(line_count "$RESULT_DIR/$output")"
     if [[ "$count" -ne "$EXPECTED_SNAPSHOTS" ]]; then

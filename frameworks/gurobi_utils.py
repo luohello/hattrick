@@ -487,10 +487,14 @@ def open_relevant_files(props, results_path, num_cluster):
     else:
         pred_type = props.pred_type
 
-    runtime_file = open(f"{results_path}/{num_cluster}/{props.gur_mode}_runtime_{prio}.txt", "w")
+    file_mode = "a" if getattr(props, "resume_opt", False) else "w"
+    runtime_file = open(
+        f"{results_path}/{num_cluster}/{props.gur_mode}_runtime_{prio}.txt",
+        file_mode,
+    )
     if props.gur_mode == "flexile":
         optimal_path = f"{results_path}/{num_cluster}/{pred_type}_optimal_values_{objs_str}.txt"
-        optimal_values = open(optimal_path, "w")
+        optimal_values = open(optimal_path, file_mode)
         if prio == 2:
             optimal_values_high_class = np.loadtxt(f"{results_path}/{num_cluster}/{pred_type}_optimal_values_{objs[0]}.txt").reshape(-1)
         if prio == 3:
@@ -500,7 +504,7 @@ def open_relevant_files(props, results_path, num_cluster):
         
         if props.pred == 0:
             filenames_path = f"{results_path}/{num_cluster}/filenames.txt"
-            filenames = open(filenames_path, "w")
+            filenames = open(filenames_path, file_mode)
             if prio == 1:
                 return optimal_values, filenames, runtime_file
             elif prio == 2:
@@ -509,7 +513,7 @@ def open_relevant_files(props, results_path, num_cluster):
                 return optimal_values, filenames, optimal_values_high_class, optimal_values_mid_class, runtime_file
         elif props.pred == 1:
             optimal_path_on_gt = f"{results_path}/{num_cluster}/{pred_type}_optimal_values_{objs_str}_on_gt.txt"
-            optimal_values_on_gt = open(optimal_path_on_gt, "w")
+            optimal_values_on_gt = open(optimal_path_on_gt, file_mode)
             if prio == 1:
                 return optimal_values, optimal_values_on_gt, runtime_file
             elif prio == 2:
@@ -519,7 +523,7 @@ def open_relevant_files(props, results_path, num_cluster):
 
     elif props.gur_mode == "swan":
         swan_path = f"{results_path}/{num_cluster}/swan_{pred_type}_{props.priority}.txt"
-        swan = open(swan_path, "w")
+        swan = open(swan_path, file_mode)
         
         return swan, runtime_file
     

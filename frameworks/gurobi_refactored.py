@@ -47,6 +47,34 @@ except:
     pass
 
 
+def count_lines(path):
+    with open(path, "r") as file_handle:
+        return sum(1 for _ in file_handle)
+
+
+if props.resume_opt:
+    if props.pred != 0:
+        raise ValueError("--resume_opt currently supports ground-truth runs only")
+    if start_index <= 0:
+        raise ValueError("--resume_opt requires --opt_start_idx greater than zero")
+
+    objs_str = "_".join(props.objs)
+    resume_files = [
+        f"{results_path}/{num_cluster}/gt_optimal_values_{objs_str}.txt",
+        f"{results_path}/{num_cluster}/{props.gur_mode}_runtime_{prio}.txt",
+        f"{results_path}/{num_cluster}/filenames.txt",
+    ]
+    for resume_path in resume_files:
+        if not os.path.isfile(resume_path):
+            raise FileNotFoundError(f"Resume file is missing: {resume_path}")
+        rows = count_lines(resume_path)
+        if rows != start_index:
+            raise ValueError(
+                f"Resume file {resume_path} has {rows} rows; "
+                f"expected {start_index}"
+            )
+
+
 topology_filename, pairs_filename, tm_filename = manifest[start_index]
 topology_filename = topology_filename.strip()
 pairs_filename = pairs_filename.strip()
@@ -80,18 +108,21 @@ elif props.gur_mode == "swan":
     assert props.pred == 1, "SWAN only supports prediction"
     swan, runtime_file = open_relevant_files(props, results_path, num_cluster)
 
-num_snapshots_in_cluster = 0
+num_snapshots_in_cluster = start_index if props.resume_opt else 0
 
 
 def optimize_with_numerical_retry(model, snapshot_name, snapshot_index):
-    """Solve with the paper settings, retrying only numerical failures."""
+    """Solve with the paper settings and retry non-optimal numerical exits."""
     total_runtime = 0.0
     model.optimize()
     total_runtime += model.Runtime
 
-    if model.Status == GRB.NUMERIC:
+    retryable_statuses = {GRB.NUMERIC, GRB.SUBOPTIMAL}
+
+    if model.Status in retryable_statuses:
         print(
-            f"Numerical retry with BarHomogeneous=1: "
+            f"Numerical retry with BarHomogeneous=1 "
+            f"after status {model.Status}: "
             f"{snapshot_name} (index {snapshot_index})"
         )
         model.reset()
@@ -99,13 +130,15 @@ def optimize_with_numerical_retry(model, snapshot_name, snapshot_index):
         model.optimize()
         total_runtime += model.Runtime
 
-    if model.Status == GRB.NUMERIC:
+    if model.Status in retryable_statuses:
         print(
-            f"Numerical retry with dual simplex: "
+            f"Numerical retry with dual simplex "
+            f"after status {model.Status}: "
             f"{snapshot_name} (index {snapshot_index})"
         )
         model.reset()
         model.setParam("Method", 1)
+        model.setParam("BarHomogeneous", 0)
         model.optimize()
         total_runtime += model.Runtime
 
@@ -235,9 +268,12 @@ for i, snapshot in tqdm.tqdm(enumerate(manifest[start_index:end_index]), total=l
             filenames.write(str(topology_filename) + "," + str(pairs_filename) + "," + str(tm_filename) + "\n")
     else:
         print("Error! Likely a numerical issue or machine precision issue", tm_filename, index)
-        print(solver.model.status)
-        solver.model.computeIIS()
-        solver.model.write("model.ilp")
+        status = solver.model.status
+        print(status)
+        solver.model.write(f"failed_model_{index}_{status}.lp")
+        if status == GRB.INFEASIBLE:
+            solver.model.computeIIS()
+            solver.model.write(f"failed_model_{index}_{status}.ilp")
         exit(1)
 
     

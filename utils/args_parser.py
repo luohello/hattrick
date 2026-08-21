@@ -43,6 +43,11 @@ def add_default_args(parser):
     parser.add_argument("--test_cluster", type=int, default=0, help="Hattrick: Cluster ID to be used for testing.")
     parser.add_argument("--opt_start_idx", type=int, help="Gurobi: Start index for optimal computation.")
     parser.add_argument("--opt_end_idx", type=int, help="Gurobi: End index for optimal computation.")
+    parser.add_argument(
+        "--resume_opt",
+        action="store_true",
+        help="Resume a ground-truth Gurobi run by appending from opt_start_idx.",
+    )
     parser.add_argument("--priority", type=int, help="Gurobi: End index for optimal computation.", default=1)
     parser.add_argument("--cluster", type=int, help="Specify the cluster index", default=0)
     parser.add_argument("--additive_loss", type=int, default=0, help="Additive loss for Hattrick instead of gradient projection.")
