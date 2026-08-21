@@ -36,7 +36,7 @@ COMMON_ARGS=(
     --adaptive_rau_min_steps "${ADAPTIVE_RAU_MIN_STEPS:-1}"
     --uncertainty_scale "${UNCERTAINTY_SCALE:-1.0}"
     --uncertainty_ema "${UNCERTAINTY_EMA:-0.9}"
-    --conditional_fulfill 1
+    --conditional_fulfill 0
     --fulfill_slo "${FULFILL_SLO:-0.995}"
     --cvar_alpha "${CVAR_ALPHA:-0.1}"
     --cvar_weight "${CVAR_WEIGHT:-0.1}"
