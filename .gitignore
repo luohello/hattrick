@@ -17,6 +17,7 @@ helo/
 
 # Experiment data and generated predictions
 traffic_matrices/*/
+traffic_matrices/geant_*
 traffic_matrices/*.zip
 traffic_matrices/*.tar
 traffic_matrices/*.tar.gz
@@ -25,6 +26,7 @@ traffic_matrices/*.tar.gz
 results/
 output/
 logs/
+state/
 hp_search/
 models/
 optimizers/
