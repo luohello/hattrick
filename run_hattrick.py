@@ -252,7 +252,7 @@ elif props.mode.lower() == "test": #test
                 test_losses2.append(loss2_val)
                 test_losses3.append(loss3_val)
                 
-                if props.topo in ["uscarrier", "kdl"]:
+                if props.topo in ["uscarrier", "kdl"] and props.sim_mf_mlu:
                     file.write(str((sr_1.sum()/(tms1.sum()/props.num_paths_per_pair)).item()) + "\n")
                     file.write(str((sr_2.sum()/(tms2.sum()/props.num_paths_per_pair)).item()) + "\n")
                     file.write(str((sr_3.sum()/(tms3.sum()/props.num_paths_per_pair)).item()) + "\n")
