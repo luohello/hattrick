@@ -151,7 +151,7 @@ BEST-MC 和 SWAN 继续共用；基础与优化 Hattrick 的模型、原始结�
 
 - 目标：避免当前源、宿节点 embedding 相加导致方向信息弱化。
 - 修改文件：`frameworks/hattrick_system.py`
-- 计划改动：将链路表示改为 `[h_src, h_dst, h_src-h_dst, normalized_capacity]`，并对容量和需求使用无量纲归一化。
+- 实际改动：使用紧凑表示 `[h_src+h_dst, h_src-h_dst, normalized_capacity]`；默认三层 GNN 下先形成 23 维原始特征，再经可学习的 `Linear(23, 24)` 投影送入 Set Transformer。容量归一化使用 `1e-6` 数值保护。
 - 验证：与当前 sum encoder 做等参数量消融；检查反向链路容量不同时的表示可区分性。
 
 ### OPT-204：自适应 RAU 早停

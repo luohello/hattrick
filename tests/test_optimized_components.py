@@ -7,6 +7,7 @@ import torch
 from utils.build_dataset_within_cluster import DM_Dataset_within_Cluster
 from utils.robust_proj_utils import project_priority_gradients
 from utils.training_utils import cumulative_fulfill_hinge
+from frameworks.hattrick_system import Hattrick, _compact_directional_edge_features
 
 
 class TinyModel(torch.nn.Module):
@@ -16,6 +17,48 @@ class TinyModel(torch.nn.Module):
 
 
 class OptimizedComponentsTest(unittest.TestCase):
+    def test_compact_directional_features_preserve_endpoints(self):
+        source = torch.tensor([[[1.0, 2.0], [3.0, 5.0]]])
+        destination = torch.tensor([[[4.0, 8.0], [2.0, 1.0]]])
+        endpoints = torch.stack((source, destination), dim=2)
+        capacities = torch.tensor([[0.0, 2.0]])
+
+        compact = _compact_directional_edge_features(endpoints, capacities)
+        endpoint_sum, endpoint_difference = compact[..., :2], compact[..., 2:4]
+        recovered_source = (endpoint_sum + endpoint_difference) / 2
+        recovered_destination = (endpoint_sum - endpoint_difference) / 2
+
+        torch.testing.assert_close(recovered_source, source)
+        torch.testing.assert_close(recovered_destination, destination)
+        torch.testing.assert_close(compact[..., -1], torch.tensor([[0.0, 2.0]]))
+
+        zero_capacity = _compact_directional_edge_features(
+            endpoints,
+            torch.zeros_like(capacities),
+        )
+        self.assertTrue(torch.isfinite(zero_capacity).all())
+
+    def test_compact_directional_edge_projection(self):
+        props = SimpleNamespace(
+            num_gnn_layers=3,
+            num_transformer_layers=1,
+            dropout=0.0,
+            num_mlp1_hidden_layers=0,
+            num_mlp2_hidden_layers=0,
+            device=torch.device("cpu"),
+            topo="geant",
+            directional_edge_encoding=1,
+            num_heads=0,
+            violation=0,
+        )
+        model = Hattrick(props)
+        self.assertEqual(model.gnn.output_dim, 11)
+        self.assertEqual(model.gnn.edge_output_dim, 23)
+        self.assertEqual(model.edge_projection.in_features, 23)
+        self.assertEqual(model.edge_projection.out_features, 24)
+        self.assertEqual(model.input_dim, 24)
+        self.assertEqual(model.num_heads, 6)
+
     def test_priority_projection_is_orthogonal(self):
         model = TinyModel()
         high = model.weight[0]

@@ -13,6 +13,24 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 
 epsilon = 1e-4
+capacity_epsilon = 1e-6
+directional_transformer_dim = 24
+
+
+def _compact_directional_edge_features(edge_embeddings, capacities):
+    """Build an information-preserving sum/difference edge representation."""
+    source_embeddings = edge_embeddings[:, :, 0, :]
+    destination_embeddings = edge_embeddings[:, :, 1, :]
+    capacity_scale = capacities.abs().mean(dim=1, keepdim=True).clamp_min(capacity_epsilon)
+    normalized_capacities = (capacities / capacity_scale).unsqueeze(-1)
+    return torch.cat(
+        (
+            source_embeddings + destination_embeddings,
+            source_embeddings - destination_embeddings,
+            normalized_capacities,
+        ),
+        dim=-1,
+    )
 
 
 def _rau_has_converged(props, delta, completed_steps):
@@ -73,7 +91,10 @@ class GNN(nn.Module):
             else:
                 self.gnns.append(GCNConv(num_features+2, num_features+2))
         self.output_dim = num_gnn_layers*(self.num_features+2) - 1
-        self.edge_output_dim = self.output_dim * 3 + 1 if directional else self.output_dim + 1
+        # Directional mode emits the compact raw representation
+        # [h_src + h_dst, h_src - h_dst, normalized_capacity].  With the
+        # default three GNN layers this is 11 + 11 + 1 = 23 dimensions.
+        self.edge_output_dim = self.output_dim * 2 + 1 if directional else self.output_dim + 1
         
         
         
@@ -135,19 +156,7 @@ class GNN(nn.Module):
         batch_index = batch_index.expand(-1, num_edges, 2)  # Repeat the batch index for each edge
         edge_embeddings = node_embeddings[batch_index, edge_index_expanded]
         if self.directional:
-            source_embeddings = edge_embeddings[:, :, 0, :]
-            destination_embeddings = edge_embeddings[:, :, 1, :]
-            capacity_scale = capacities.abs().mean(dim=1, keepdim=True).clamp_min(epsilon)
-            normalized_capacities = (capacities / capacity_scale).unsqueeze(-1)
-            edge_embeddings = torch.cat(
-                (
-                    source_embeddings,
-                    destination_embeddings,
-                    source_embeddings - destination_embeddings,
-                    normalized_capacities,
-                ),
-                dim=-1,
-            )
+            edge_embeddings = _compact_directional_edge_features(edge_embeddings, capacities)
         else:
             edge_embeddings = edge_embeddings.sum(dim=-2)
             edge_embeddings = torch.cat((edge_embeddings, capacities.unsqueeze(-1)), dim=-1)
@@ -169,9 +178,19 @@ class Hattrick(nn.Module):
         self.device = props.device
         self.topo = props.topo
         # Define the GNN
-        self.gnn = GNN(2, self.num_gnn_layers, bool(props.directional_edge_encoding))
-        
-        self.input_dim = self.gnn.edge_output_dim
+        self.directional_edge_encoding = bool(props.directional_edge_encoding)
+        self.gnn = GNN(2, self.num_gnn_layers, self.directional_edge_encoding)
+
+        if self.directional_edge_encoding:
+            self.edge_projection = nn.Linear(
+                self.gnn.edge_output_dim,
+                directional_transformer_dim,
+            )
+            self.input_dim = directional_transformer_dim
+        else:
+            # Identity keeps the baseline architecture and state dict unchanged.
+            self.edge_projection = nn.Identity()
+            self.input_dim = self.gnn.edge_output_dim
                 
         # CLS Token for the Set Transformer
         self.cls_token = nn.Parameter(torch.Tensor(1, self.input_dim))
@@ -190,6 +209,7 @@ class Hattrick(nn.Module):
             raise ValueError(
                 f"Transformer input dimension {self.input_dim} is not divisible by {num_heads} heads"
             )
+        self.num_heads = num_heads
         
         # Define the Set Transformer
         self.transformer = TransformerModel(in_dim = self.input_dim, nhead=num_heads,
@@ -331,9 +351,10 @@ class Hattrick(nn.Module):
                 
         num_paths_per_pair = props.num_paths_per_pair
         if props.checkpoint >= 1:
-            edge_embeddings_with_caps = checkpoint(self.gnn, node_features, edge_index, capacities, use_reentrant=False)
+            raw_edge_embeddings = checkpoint(self.gnn, node_features, edge_index, capacities, use_reentrant=False)
         else:
-            edge_embeddings_with_caps = self.gnn(node_features, edge_index, capacities)
+            raw_edge_embeddings = self.gnn(node_features, edge_index, capacities)
+        edge_embeddings_with_caps = self.edge_projection(raw_edge_embeddings)
         batch_size = tm1.shape[0]
         if props.dynamic:
             batch_size_tf = batch_size

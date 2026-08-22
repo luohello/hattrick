@@ -54,7 +54,12 @@ def add_default_args(parser):
     parser.add_argument("--checkpoint", type=int, default=0, help="Checkpoint the forward pass of Hattrick.")
     parser.add_argument("--detect_anomaly", type=int, default=0, help="Enable PyTorch autograd anomaly detection for debugging.")
     parser.add_argument("--deterministic", type=int, default=1, help="Enable deterministic PyTorch kernels.")
-    parser.add_argument("--directional_edge_encoding", type=int, default=0, help="Encode source, destination and direction separately.")
+    parser.add_argument(
+        "--directional_edge_encoding",
+        type=int,
+        default=0,
+        help="Encode endpoint sum/difference plus normalized capacity and project the compact representation to 24 dimensions.",
+    )
     parser.add_argument("--adaptive_rau_tol", type=float, default=0.0, help="Stop RAU updates when the maximum logit update is below this value; 0 disables it.")
     parser.add_argument("--adaptive_rau_min_steps", type=int, default=1, help="Minimum RAU updates before adaptive stopping.")
     parser.add_argument("--uncertainty_scale", type=float, default=0.0, help="Scale for the causal under-prediction margin added to ESM predictions.")
