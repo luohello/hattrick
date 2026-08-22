@@ -7,7 +7,7 @@
 本文档基于实际 Git 差异和已完成的 GEANT K=8 实验，比较：
 
 - 基础版本：`main@f08435e`
-- 优化版本：`optimized/phase1-phase2@3b6c37d`
+- 优化版本：`optimized/phase1-phase2@e8b5a9b`
 - 代码差异：13 个文件，新增 603 行、删除 214 行
 - 数据集：GEANT，共 10772 个快照
 - 训练区间：`[0, 6464)`
@@ -224,11 +224,13 @@ model.last_rau_steps = [stage1_steps, stage2_steps, stage3_steps]
 
 ### 9.3 实验资产隔离
 
-优化版本独立存放于 `/mnt/data0/Hattrick_optimized`：
+实验运行阶段曾使用 `/mnt/data0/Hattrick_optimized` 隔离优化 worktree。优化代码合并到 `main` 后，远程统一使用 `/mnt/data0/Hattrick`，并采用命名子目录保留两套实验资产：
 
-- 只读复用基础实验的 GEANT TM、ESM TM、filenames、Gurobi oracle、BEST-MC 和 SWAN 结果；
-- 独立保存优化模型、优化日志、Hattrick 推理结果、统计表格和图片；
-- 不覆盖 `/mnt/data0/Hattrick` 中的基础 Hattrick 结果；
+- 继续复用同一份 GEANT TM、ESM TM、filenames、Gurobi oracle、BEST-MC 和 SWAN 结果；
+- 基础 Hattrick 模型和原始结果归档到 `baseline_geant_k8` / `baseline_hattrick` 子目录；
+- 优化 Hattrick 模型和原始结果归档到 `optimized_geant_k8` / `optimized_hattrick` 子目录；
+- 活动代码、活动模型和默认 Hattrick 结果使用优化版本；
+- 基础汇总与优化汇总分别保存在 `output/geant_k8` 和 `output/geant_k8_optimized`；
 - 数据、模型和大日志不提交 Git，只提交源码、脚本、文档和结果摘要。
 
 由于 BEST-MC、SWAN 和 Gurobi oracle 是只读复用的，基础版与优化版之间真正变化的是 Hattrick；其他方法作为相同参照，不应被描述为重新优化后的结果。
@@ -286,7 +288,7 @@ model.last_rau_steps = [stage1_steps, stage2_steps, stage3_steps]
 
 ```text
 基础版：/mnt/data0/Hattrick/output/geant_k8
-优化版：/mnt/data0/Hattrick_optimized/output/geant_k8_optimized
+优化版：/mnt/data0/Hattrick/output/geant_k8_optimized
 ```
 
 ## 12. 总结

@@ -4,9 +4,9 @@
 
 ## 0. 当前实现状态（2026-08-21）
 
-优化实现位于分支 `optimized/phase1-phase2`，由 `run_geant_optimized.sh` 独立运行，
-不会覆盖基础代码或基础实验的 Hattrick 输出。GEANT TM 与 Gurobi oracle 通过只读链接复用，
-优化模型、日志和推理结果保存在 `Hattrick_optimized` 自己的目录中。
+优化实现最初位于分支 `optimized/phase1-phase2`，完成对照实验后已合并到 `main`。
+远程统一使用 `/mnt/data0/Hattrick`，不再保留第二个 worktree。GEANT TM、Gurobi oracle、
+BEST-MC 和 SWAN 继续共用；基础与优化 Hattrick 的模型、原始结果和汇总通过命名子目录归档。
 
 已接入并通过远程冒烟训练：
 
