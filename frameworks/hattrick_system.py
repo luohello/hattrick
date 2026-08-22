@@ -14,6 +14,14 @@ sys.path.append(parent_dir)
 
 epsilon = 1e-4
 
+
+def _rau_has_converged(props, delta, completed_steps):
+    tolerance = float(getattr(props, "adaptive_rau_tol", 0.0))
+    minimum_steps = int(getattr(props, "adaptive_rau_min_steps", 1))
+    if tolerance <= 0.0 or completed_steps < minimum_steps:
+        return False
+    return bool(delta.detach().abs().amax().item() < tolerance)
+
 # Set Transformer
 class TransformerModel(nn.Module):
     def __init__(self, in_dim: int, nhead: int, dim_feedforward: int,
@@ -51,9 +59,10 @@ class TransformerModel(nn.Module):
 
 # GNN of HARP
 class GNN(nn.Module):
-    def __init__(self, num_features, num_gnn_layers):
+    def __init__(self, num_features, num_gnn_layers, directional=False):
         super(GNN, self).__init__()
         self.num_features = num_features
+        self.directional = directional
                 
         self.gnns = nn.ModuleList()
         for i in range(num_gnn_layers):
@@ -64,6 +73,7 @@ class GNN(nn.Module):
             else:
                 self.gnns.append(GCNConv(num_features+2, num_features+2))
         self.output_dim = num_gnn_layers*(self.num_features+2) - 1
+        self.edge_output_dim = self.output_dim * 3 + 1 if directional else self.output_dim + 1
         
         
         
@@ -121,12 +131,26 @@ class GNN(nn.Module):
         _, num_edges, _ = edge_index_expanded.shape
         
         # Create a batch index
-        batch_index = torch.arange(batch_size).view(-1, 1, 1)
+        batch_index = torch.arange(batch_size, device=node_embeddings.device).view(-1, 1, 1)
         batch_index = batch_index.expand(-1, num_edges, 2)  # Repeat the batch index for each edge
         edge_embeddings = node_embeddings[batch_index, edge_index_expanded]
-        capacities = capacities.unsqueeze(-1)
-        edge_embeddings = edge_embeddings.sum(dim=-2)
-        edge_embeddings = torch.cat((edge_embeddings, capacities), dim=-1)
+        if self.directional:
+            source_embeddings = edge_embeddings[:, :, 0, :]
+            destination_embeddings = edge_embeddings[:, :, 1, :]
+            capacity_scale = capacities.abs().mean(dim=1, keepdim=True).clamp_min(epsilon)
+            normalized_capacities = (capacities / capacity_scale).unsqueeze(-1)
+            edge_embeddings = torch.cat(
+                (
+                    source_embeddings,
+                    destination_embeddings,
+                    source_embeddings - destination_embeddings,
+                    normalized_capacities,
+                ),
+                dim=-1,
+            )
+        else:
+            edge_embeddings = edge_embeddings.sum(dim=-2)
+            edge_embeddings = torch.cat((edge_embeddings, capacities.unsqueeze(-1)), dim=-1)
         
         return edge_embeddings
         
@@ -145,9 +169,9 @@ class Hattrick(nn.Module):
         self.device = props.device
         self.topo = props.topo
         # Define the GNN
-        self.gnn = GNN(2, self.num_gnn_layers)
+        self.gnn = GNN(2, self.num_gnn_layers, bool(props.directional_edge_encoding))
         
-        self.input_dim = self.gnn.output_dim + 1
+        self.input_dim = self.gnn.edge_output_dim
                 
         # CLS Token for the Set Transformer
         self.cls_token = nn.Parameter(torch.Tensor(1, self.input_dim))
@@ -157,9 +181,15 @@ class Hattrick(nn.Module):
             if props.num_gnn_layers == 1:
                 num_heads = 2
             else:
-                num_heads = self.input_dim//4
+                num_heads = max(1, self.input_dim // 4)
+                while self.input_dim % num_heads != 0:
+                    num_heads -= 1
         else:
             num_heads = props.num_heads
+        if self.input_dim % num_heads != 0:
+            raise ValueError(
+                f"Transformer input dimension {self.input_dim} is not divisible by {num_heads} heads"
+            )
         
         # Define the Set Transformer
         self.transformer = TransformerModel(in_dim = self.input_dim, nhead=num_heads,
@@ -343,6 +373,7 @@ class Hattrick(nn.Module):
         col_indices = indices[1]
 
         pte_info = [paths_to_edges, row_indices, col_indices, values]
+        self.last_rau_steps = [0, 0, 0]
         
         ############################################################################
         # Predicted matrix 
@@ -379,6 +410,9 @@ class Hattrick(nn.Module):
                 delta_gammas_1 = self.forward_pass_mlp(c1_rau_inputs, self.mlp12, self.num_mlp2_hidden_layers)
             gammas_1 = gammas_1.reshape(batch_size, -1, 1)
             new_gammas_1 = delta_gammas_1 + gammas_1
+            self.last_rau_steps[0] = i + 1
+            if _rau_has_converged(props, delta_gammas_1, i + 1):
+                break
 
         if props.checkpoint >= 2:
             edges_util_tm1_1, _, __ = checkpoint(self.compute_edge_utils, new_gammas_1, paths_to_edges, tm1, capacities, props,
@@ -471,6 +505,9 @@ class Hattrick(nn.Module):
                 else:
                     delta_gammas_2 = self.forward_pass_mlp(c2_rau_inputs, self.mlp22, self.num_mlp2_hidden_layers)
             new_gammas_2 = delta_gammas_2 + gammas_2
+            self.last_rau_steps[1] = i + 1
+            if _rau_has_converged(props, delta_gammas_2, i + 1):
+                break
             
         gammas_12, gammas_22 = new_gammas_2[:, :, :1], new_gammas_2[:, :, 1:]
         
@@ -632,6 +669,9 @@ class Hattrick(nn.Module):
                     delta_gammas_3 = self.forward_pass_mlp(c3_rau_inputs, self.mlp32, self.num_mlp2_hidden_layers)
             # delta_gammas_3 = self.forward_pass_mlp(c3_rau_inputs, self.mlp32, self.num_mlp2_hidden_layers)
             new_gammas_3 = delta_gammas_3 + gammas_3
+            self.last_rau_steps[2] = i + 1
+            if _rau_has_converged(props, delta_gammas_3, i + 1):
+                break
         
         gammas_13, gammas_23, gammas_33 = new_gammas_3[:, :, :1], new_gammas_3[:, :, 1:2], new_gammas_3[:, :, 2:]
 
@@ -661,6 +701,7 @@ class Hattrick(nn.Module):
         c1_split_ratios = c1_split_ratios*tm1.squeeze(-1)
         c2_split_ratios = c2_split_ratios*tm2.squeeze(-1)
         c3_split_ratios = c3_split_ratios*tm3.squeeze(-1)
+        self.last_admitted_flows = (c1_split_ratios, c2_split_ratios, c3_split_ratios)
         edges_util_tm2_3 = edges_util_tm2_3 + edges_util_tm1_3
         edges_util_tm3_3 = edges_util_tm3_3 + edges_util_tm2_3
         if props.sim_mf_mlu:

@@ -3,7 +3,11 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from .build_dataset_within_cluster import DM_Dataset_within_Cluster, custom_collate
 # from .proj_utils import *
-from .robust_proj_utils import project_gradients_one_optimizer_robust, assign_gradients_and_step
+from .robust_proj_utils import (
+    assign_gradients_and_step,
+    project_gradients_one_optimizer_robust,
+    project_priority_gradients,
+)
 
 def count_parameters(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -76,14 +80,53 @@ def train(epoch, n_epochs, model, props, ds_list, dl_list, optimizers):
                 loss5, loss5_val = loss_mlu(edges_util_tm1_3, opt1)
                 loss6, loss6_val = loss_mlu(edges_util_tm2_3, opt2)
 
+                if props.cvar_weight > 0.0:
+                    loss1 = loss1 + props.cvar_weight * tail_mlu_loss(
+                        edges_util_tm1_1, opt1, props.cvar_alpha
+                    )
+                    loss2 = loss2 + props.cvar_weight * tail_mlu_loss(
+                        edges_util_tm2_2, opt2, props.cvar_alpha
+                    )
+                    loss4 = loss4 + props.cvar_weight * tail_mlu_loss(
+                        edges_util_tm3_3, opt3, props.cvar_alpha
+                    )
+
                 if props.additive_loss:
                     loss = 10*loss1 + 0.1*loss2 + 0.01*loss3 + 0.001*loss4
                     loss.backward()
                     c1_optimizer.step()
                     model.zero_grad(set_to_none=True)
                 else:
-                    final_grads_mb, shapes2, _, _, _, c1_optimizer = \
-                                    project_gradients_one_optimizer_robust(model, loss1, loss2, loss3, loss4, c1_optimizer)
+                    if props.conditional_fulfill:
+                        admitted_1, admitted_2, admitted_3 = model.last_admitted_flows
+                        demand_1 = tms1 / props.num_paths_per_pair
+                        demand_2 = tms2 / props.num_paths_per_pair
+                        demand_3 = tms3 / props.num_paths_per_pair
+                        fulfill_1 = cumulative_fulfill_hinge(
+                            [admitted_1], [demand_1], props.fulfill_slo, props.cvar_alpha
+                        )
+                        fulfill_12 = cumulative_fulfill_hinge(
+                            [admitted_1, admitted_2], [demand_1, demand_2],
+                            props.fulfill_slo, props.cvar_alpha
+                        )
+                        fulfill_123 = cumulative_fulfill_hinge(
+                            [admitted_1, admitted_2, admitted_3], [demand_1, demand_2, demand_3],
+                            props.fulfill_slo, props.cvar_alpha
+                        )
+                        priority_losses = [
+                            fulfill_1,
+                            loss1,
+                            fulfill_12,
+                            loss2,
+                            fulfill_123 + loss3,
+                            loss4,
+                        ]
+                        final_grads_mb, shapes2, _ = project_priority_gradients(
+                            model, priority_losses
+                        )
+                    else:
+                        final_grads_mb, shapes2, _, _, _, c1_optimizer = \
+                                        project_gradients_one_optimizer_robust(model, loss1, loss2, loss3, loss4, c1_optimizer)
                     
                     if (i+1)%props.round == 0 or (i+1) == len(train_dl):
                         final_grads += final_grads_mb
@@ -129,6 +172,30 @@ def loss_mlu(y_pred_batch, y_true_batch):
     losses = torch.where(detached_max == 0.0, 1.0 - max_cong, max_cong / normalizer)
     loss_vals = torch.where(opt == 0.0, torch.ones_like(detached_max), detached_max / opt_normalizer)
     return losses.mean(), loss_vals.mean().item()
+
+
+def _tail_mean(values, alpha):
+    if not 0.0 < alpha <= 1.0:
+        raise ValueError("cvar_alpha must be in (0, 1]")
+    count = max(1, int(torch.ceil(torch.tensor(values.numel() * alpha)).item()))
+    return torch.topk(values.reshape(-1), count, largest=True).values.mean()
+
+
+def tail_mlu_loss(y_pred_batch, y_true_batch, alpha):
+    """Differentiable CVaR-style normalized MLU over the worst batch samples."""
+    batch_size = y_pred_batch.shape[0]
+    predicted_mlu = y_pred_batch.reshape(batch_size, -1).amax(dim=1)
+    optimum = y_true_batch.reshape(batch_size, -1)[:, 0].detach().clamp_min(1e-8)
+    return _tail_mean(predicted_mlu / optimum, alpha)
+
+
+def cumulative_fulfill_hinge(admitted_classes, demand_classes, slo, alpha):
+    """Worst-tail hinge loss for the cumulative fulfill ratio of a class prefix."""
+    admitted = sum(value.reshape(value.shape[0], -1).sum(dim=1) for value in admitted_classes)
+    demand = sum(value.reshape(value.shape[0], -1).sum(dim=1) for value in demand_classes)
+    ratio = admitted / demand.clamp_min(1e-8)
+    violations = torch.relu(torch.as_tensor(slo, device=ratio.device, dtype=ratio.dtype) - ratio)
+    return _tail_mean(violations, alpha)
 
 
 def create_dataloaders(props, batch_size, training = True, shuffle = True):

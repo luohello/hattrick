@@ -115,6 +115,9 @@ class DM_Dataset_within_Cluster(Dataset):
             self.list_optimal_values_3_mf.append(opt_value_3_mf)
             self.list_capacities.append(snapshot.capacities)
             self.list_node_features.append(snapshot._node_features)
+
+        if self.props.pred and getattr(self.props, "uncertainty_scale", 0.0) > 0.0:
+            self._apply_causal_uncertainty_margin()
             
         cluster_info = Cluster_Info(snapshot, props, self.cluster)
         self.edge_index = cluster_info.sp.get_edge_index().to(props.device)
@@ -122,6 +125,29 @@ class DM_Dataset_within_Cluster(Dataset):
         self.pte = cluster_info.get_paths_to_edges_matrix(self.pij)
         self.padded_edge_ids_per_path, self.edge_ids_dict_tensor, self.original_pos_edge_ids_dict_tensor = cluster_info.get_padded_edge_ids_per_path(self.pij, cluster_info.edges_map)
         self.num_pairs = cluster_info.num_pairs
+
+    def _apply_causal_uncertainty_margin(self):
+        """Calibrate predictions using only under-prediction residuals from prior snapshots.
+
+        The current snapshot's true TM is incorporated only after its prediction has been
+        adjusted, so validation and inference do not leak future traffic information.
+        """
+        decay = float(self.props.uncertainty_ema)
+        scale = float(self.props.uncertainty_scale)
+        if not 0.0 <= decay < 1.0:
+            raise ValueError("uncertainty_ema must be in [0, 1)")
+
+        for actual_series, predicted_series in (
+            (self.list_tms1, self.list_tms1_pred),
+            (self.list_tms2, self.list_tms2_pred),
+            (self.list_tms3, self.list_tms3_pred),
+        ):
+            margin = np.zeros_like(predicted_series[0], dtype=np.float32)
+            for index, (actual, prediction) in enumerate(zip(actual_series, predicted_series)):
+                raw_prediction = prediction.astype(np.float32, copy=False)
+                predicted_series[index] = raw_prediction + scale * margin
+                under_prediction = np.maximum(actual - raw_prediction, 0.0)
+                margin = decay * margin + (1.0 - decay) * under_prediction
         
         
     def __len__(self):

@@ -2,6 +2,29 @@
 
 最后更新：2026-08-17
 
+## 0. 当前实现状态（2026-08-21）
+
+优化实现位于分支 `optimized/phase1-phase2`，由 `run_geant_optimized.sh` 独立运行，
+不会覆盖基础代码或基础实验的 Hattrick 输出。GEANT TM 与 Gurobi oracle 通过只读链接复用，
+优化模型、日志和推理结果保存在 `Hattrick_optimized` 自己的目录中。
+
+已接入并通过远程冒烟训练：
+
+- Phase 1：可配置确定性/异常检测、批量验证、张量化指标、稳定 SVD 子空间梯度投影；
+- OPT-201：利用历史已实现残差的因果 EMA 上调低估流量，并增加 CVaR 尾部 MLU；
+- OPT-202：按照高、高+中、高+中+低顺序加入 Fulfill SLO hinge 目标；
+- OPT-203：链路表示改为源、宿、方向差和归一化容量；
+- OPT-204：三阶段 RAU 支持按 logit 更新幅度自适应早停；
+- 测试：`tests/test_optimized_components.py` 覆盖因果性、Fulfill 梯度和投影正交性。
+
+统一入口：
+
+```bash
+./run_geant_optimized.sh check
+./run_geant_optimized.sh smoke
+./run_geant_optimized.sh all
+```
+
 本文档记录拟进行的代码和算法改进、具体涉及文件、验证方法与推荐实施顺序。问题背景与当前证据见 `docs/CURRENT_ISSUES.md`。
 
 ## 1. 总体原则

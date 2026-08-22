@@ -9,7 +9,6 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 random.seed(seed)
 np.random.seed(seed)
-torch.use_deterministic_algorithms(True)
 
 cwd = os.getcwd()
 sys.path.append(cwd + "/utils")
@@ -33,6 +32,7 @@ print("Current Date and Time: ", formatted_date_time)
 props = parse_args(sys.argv[1:])
 props.device = device
 props_geant = copy.deepcopy(props)
+torch.use_deterministic_algorithms(bool(props.deterministic))
 torch.autograd.set_detect_anomaly(bool(props.detect_anomaly))
 
 if props.dtype.lower() == "float32":
