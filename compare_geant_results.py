@@ -217,23 +217,25 @@ def plot_fulfill_cdf(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
     per_snapshot = ordered(data["per_snapshot"])
     figure, axes = plt.subplots(1, 3, figsize=(13.2, 3.9), sharey=True)
     for ax, traffic_class in zip(axes, CLASSES):
+        scale = 1_000_000.0 if traffic_class == "High" else 1_000.0
         for method in METHODS:
             values = per_snapshot.loc[
                 (per_snapshot["scheme"] == method)
                 & (per_snapshot["traffic_class"] == traffic_class),
                 "normalized_fulfill_ratio",
             ].dropna()
-            values = np.sort(values.to_numpy(dtype=float))
+            values = (values.to_numpy(dtype=float) - 1.0) * scale
+            values = np.sort(values)
             cumulative = np.arange(1, len(values) + 1) / len(values)
             ax.plot(values, cumulative, label=method, color=COLORS[method], linewidth=2)
-        ax.axvline(1.0, color="#666666", linestyle="--", linewidth=1)
+        ax.axvline(0.0, color="#666666", linestyle="--", linewidth=1)
         ax.axhline(0.01, color="#AAAAAA", linestyle=":", linewidth=0.8)
         ax.axhline(0.10, color="#AAAAAA", linestyle=":", linewidth=0.8)
         ax.set_yscale("log")
         ax.set_ylim(1.0 / 2154.0, 1.0)
-        ax.ticklabel_format(style="plain", axis="x", useOffset=False)
         ax.set_title(f"{traffic_class} class")
-        ax.set_xlabel("Normalized fulfill ratio")
+        exponent = 6 if traffic_class == "High" else 3
+        ax.set_xlabel(f"(Fulfill ratio - 1) x 10^{exponent}")
         ax.grid(axis="y", which="both", alpha=0.25)
     axes[0].set_ylabel("CDF (log scale)")
     handles = [
@@ -506,7 +508,7 @@ def write_report(
 ## 口径说明
 
 - Fulfill Ratio 是相对 Gurobi ground-truth oracle 的归一化分级流量完成率，可用于观察接纳流量/最大流目标的接近程度。
-- Fulfill CDF 使用对数纵轴突出 P1/P10 尾部；CDF 定义和原始数据没有变化。
+- Fulfill CDF 使用对数纵轴突出 P1/P10 尾部；横轴显示相对 Oracle 1.0 的偏差，High 使用 `×10^6`，Medium/Low 使用 `×10^3`，原始比率和 CDF 定义没有变化。
 - Fulfill 箱线图对每个流量类别分别缩放到 P1-P99；MLU CDF 的横轴缩放到 P0.5-P99.5，并保留完整 P99/Max 数值在表格中。
 - Runtime 图使用局部放大的毫秒纵轴，柱顶标注真实数值，不能将视觉高度差直接解释为数量级加速或减速。
 - 图表的源数据保存在本目录 CSV 文件中，可直接复核。
