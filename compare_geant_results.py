@@ -222,9 +222,16 @@ def plot_overview(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
     handles = [
         plt.Rectangle((0, 0), 1, 1, color=COLORS[method]) for method in METHODS
     ]
-    figure.legend(handles, METHODS, loc="upper center", ncol=4, frameon=False)
     figure.suptitle("GEANT K=8: baseline methods and optimized Hattrick", y=0.99)
-    figure.tight_layout(rect=(0, 0, 1, 0.95))
+    figure.legend(
+        handles,
+        METHODS,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.955),
+        ncol=4,
+        frameon=False,
+    )
+    figure.tight_layout(rect=(0, 0, 1, 0.90))
     figure.savefig(output_dir / "geant_four_method_overview.png", dpi=180)
     plt.close(figure)
 
@@ -247,9 +254,20 @@ def plot_cdf(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
         ax.set_xlabel("Normalized fulfill ratio")
         ax.grid(alpha=0.25)
     axes[0].set_ylabel("CDF")
-    figure.legend(loc="upper center", ncol=4, frameon=False)
-    figure.suptitle("GEANT K=8 fulfill-ratio distributions", y=1.02)
-    figure.tight_layout(rect=(0, 0, 1, 0.92))
+    handles = [
+        plt.Line2D((0, 1), (0, 0), color=COLORS[method], linewidth=2)
+        for method in METHODS
+    ]
+    figure.suptitle("GEANT K=8 fulfill-ratio distributions", y=0.99)
+    figure.legend(
+        handles,
+        METHODS,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.945),
+        ncol=4,
+        frameon=False,
+    )
+    figure.tight_layout(rect=(0, 0, 1, 0.87))
     figure.savefig(output_dir / "geant_four_method_fulfill_cdf.png", dpi=180)
     plt.close(figure)
 
@@ -344,9 +362,16 @@ def plot_hattrick_change(
     axes[1, 1].grid(axis="y", alpha=0.25)
 
     handles = [plt.Rectangle((0, 0), 1, 1, color=color) for color in colors]
-    figure.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
     figure.suptitle("Hattrick before/after optimization", y=0.99)
-    figure.tight_layout(rect=(0, 0, 1, 0.95))
+    figure.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.95),
+        ncol=2,
+        frameon=False,
+    )
+    figure.tight_layout(rect=(0, 0, 1, 0.90))
     figure.savefig(output_dir / "geant_hattrick_before_after.png", dpi=180)
     plt.close(figure)
 
