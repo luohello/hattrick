@@ -17,15 +17,11 @@ import pandas as pd
 METHODS = [
     "Hattrick (Baseline)",
     "Hattrick (Optimized)",
-    "BEST-MC",
-    "SWAN",
 ]
 CLASSES = ["High", "Medium", "Low"]
 COLORS = {
     "Hattrick (Baseline)": "#4C78A8",
     "Hattrick (Optimized)": "#F58518",
-    "BEST-MC": "#54A24B",
-    "SWAN": "#E45756",
 }
 
 
@@ -47,11 +43,9 @@ def require_files(directory: Path, names: list[str]) -> None:
         raise FileNotFoundError("Missing comparison inputs: " + ", ".join(missing))
 
 
-def rename_baselines(frame: pd.DataFrame) -> pd.DataFrame:
-    result = frame.copy()
-    result["scheme"] = result["scheme"].replace(
-        {"Hattrick": "Hattrick (Baseline)", "BEST_MC": "BEST-MC"}
-    )
+def baseline_hattrick(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.loc[frame["scheme"] == "Hattrick"].copy()
+    result["scheme"] = "Hattrick (Baseline)"
     return result
 
 
@@ -76,28 +70,28 @@ def load_inputs(baseline_dir: Path, optimized_dir: Path) -> dict[str, pd.DataFra
 
     fulfill = pd.concat(
         [
-            rename_baselines(baseline["geant_fulfill_summary.csv"]),
+            baseline_hattrick(baseline["geant_fulfill_summary.csv"]),
             optimized_hattrick(optimized["geant_fulfill_summary.csv"]),
         ],
         ignore_index=True,
     )
     runtime = pd.concat(
         [
-            rename_baselines(baseline["geant_runtime_summary.csv"]),
+            baseline_hattrick(baseline["geant_runtime_summary.csv"]),
             optimized_hattrick(optimized["geant_runtime_summary.csv"]),
         ],
         ignore_index=True,
     )
     mlu = pd.concat(
         [
-            rename_baselines(baseline["geant_mlu_summary.csv"]),
+            baseline_hattrick(baseline["geant_mlu_summary.csv"]),
             optimized_hattrick(optimized["geant_mlu_summary.csv"]),
         ],
         ignore_index=True,
     )
     per_snapshot = pd.concat(
         [
-            rename_baselines(baseline["geant_per_snapshot_metrics.csv"]),
+            baseline_hattrick(baseline["geant_per_snapshot_metrics.csv"]),
             optimized_hattrick(optimized["geant_per_snapshot_metrics.csv"]),
         ],
         ignore_index=True,
@@ -128,7 +122,10 @@ def ordered(frame: pd.DataFrame) -> pd.DataFrame:
 
 def save_combined_csvs(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
     for name in ("fulfill", "runtime", "mlu"):
-        ordered(data[name]).to_csv(output_dir / f"geant_{name}_comparison.csv", index=False)
+        ordered(data[name]).to_csv(output_dir / f"geant_{name}_summary.csv", index=False)
+    ordered(data["per_snapshot"]).to_csv(
+        output_dir / "geant_per_snapshot_metrics.csv", index=False
+    )
 
     rows = []
     for _, row in ordered(data["fulfill"]).iterrows():
@@ -167,78 +164,58 @@ def save_combined_csvs(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
     pd.DataFrame(rows).to_csv(output_dir / "geant_all_key_metrics.csv", index=False)
 
 
-def grouped_bars(
-    ax: plt.Axes,
-    frame: pd.DataFrame,
-    statistic: str,
-    title: str,
-    ylabel: str,
-) -> None:
-    x = np.arange(len(CLASSES))
-    width = 0.19
-    for index, method in enumerate(METHODS):
-        values = []
-        for traffic_class in CLASSES:
-            match = frame.loc[
-                (frame["scheme"] == method)
-                & (frame["traffic_class"] == traffic_class),
-                statistic,
-            ]
-            values.append(float(match.iloc[0]))
-        ax.bar(
-            x + (index - 1.5) * width,
-            values,
-            width,
-            label=method,
-            color=COLORS[method],
-        )
-    ax.set_xticks(x, CLASSES)
-    ax.set_title(title)
-    ax.set_ylabel(ylabel)
-    ax.grid(axis="y", alpha=0.25)
-
-
-def plot_overview(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
+def plot_fulfill_table(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
     fulfill = ordered(data["fulfill"])
-    runtime = ordered(data["runtime"])
-    figure, axes = plt.subplots(2, 2, figsize=(15, 10))
-    grouped_bars(axes[0, 0], fulfill, "mean", "Mean fulfill ratio", "Ratio")
-    grouped_bars(axes[0, 1], fulfill, "p10", "P10 fulfill ratio", "Ratio")
-    grouped_bars(axes[1, 0], fulfill, "p1", "P1 fulfill ratio", "Ratio")
-
-    values = [
-        float(runtime.loc[runtime["scheme"] == method, "mean"].iloc[0]) * 1000
-        for method in METHODS
-    ]
-    bars = axes[1, 1].bar(
-        np.arange(len(METHODS)), values, color=[COLORS[method] for method in METHODS]
+    rows = []
+    row_labels = []
+    for method in METHODS:
+        short_name = "Baseline" if method.endswith("Baseline)") else "Optimized"
+        for traffic_class in CLASSES:
+            selected = fulfill.loc[
+                (fulfill["scheme"] == method)
+                & (fulfill["traffic_class"] == traffic_class)
+            ].iloc[0]
+            row_labels.append(f"{short_name} - {traffic_class}")
+            rows.append(
+                [
+                    f"{selected['mean']:.6f}",
+                    f"{selected['p1']:.6f}",
+                    f"{selected['p10']:.6f}",
+                    f"{selected['median']:.6f}",
+                ]
+            )
+    figure, ax = plt.subplots(figsize=(9.2, 4.3))
+    ax.axis("off")
+    table = ax.table(
+        cellText=rows,
+        rowLabels=row_labels,
+        colLabels=["Mean", "P1", "P10", "Median"],
+        cellLoc="right",
+        rowLoc="left",
+        colLoc="center",
+        bbox=[0.0, 0.0, 1.0, 0.91],
     )
-    axes[1, 1].set_xticks(np.arange(len(METHODS)), METHODS, rotation=18, ha="right")
-    axes[1, 1].set_title("Mean inference/optimization time")
-    axes[1, 1].set_ylabel("Milliseconds per snapshot")
-    axes[1, 1].grid(axis="y", alpha=0.25)
-    axes[1, 1].bar_label(bars, fmt="%.1f", padding=3, fontsize=9)
-
-    handles = [
-        plt.Rectangle((0, 0), 1, 1, color=COLORS[method]) for method in METHODS
-    ]
-    figure.suptitle("GEANT K=8: baseline methods and optimized Hattrick", y=0.99)
-    figure.legend(
-        handles,
-        METHODS,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.955),
-        ncol=4,
-        frameon=False,
-    )
-    figure.tight_layout(rect=(0, 0, 1, 0.90))
-    figure.savefig(output_dir / "geant_four_method_overview.png", dpi=180)
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    for (row, column), cell in table.get_celld().items():
+        cell.set_edgecolor("#D0D0D0")
+        if row == 0:
+            cell.set_facecolor("#E8EDF3")
+            cell.set_text_props(weight="bold")
+        elif column == -1:
+            method = METHODS[0] if row <= 3 else METHODS[1]
+            cell.set_facecolor(COLORS[method])
+            cell.set_text_props(color="white", weight="bold")
+        else:
+            cell.set_facecolor("#FFFFFF" if row % 2 else "#F7F7F7")
+    ax.set_title("GEANT normalized fulfill ratio summary", pad=12)
+    figure.savefig(output_dir / "geant_fulfill_table.png", dpi=180, bbox_inches="tight")
     plt.close(figure)
 
 
-def plot_cdf(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
+def plot_fulfill_cdf(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
     per_snapshot = ordered(data["per_snapshot"])
-    figure, axes = plt.subplots(1, 3, figsize=(17, 5), sharey=True)
+    figure, axes = plt.subplots(1, 3, figsize=(13.2, 3.9), sharey=True)
     for ax, traffic_class in zip(axes, CLASSES):
         for method in METHODS:
             values = per_snapshot.loc[
@@ -250,25 +227,30 @@ def plot_cdf(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
             cumulative = np.arange(1, len(values) + 1) / len(values)
             ax.plot(values, cumulative, label=method, color=COLORS[method], linewidth=2)
         ax.axvline(1.0, color="#666666", linestyle="--", linewidth=1)
-        ax.set_title(traffic_class)
+        ax.axhline(0.01, color="#AAAAAA", linestyle=":", linewidth=0.8)
+        ax.axhline(0.10, color="#AAAAAA", linestyle=":", linewidth=0.8)
+        ax.set_yscale("log")
+        ax.set_ylim(1.0 / 2154.0, 1.0)
+        ax.ticklabel_format(style="plain", axis="x", useOffset=False)
+        ax.set_title(f"{traffic_class} class")
         ax.set_xlabel("Normalized fulfill ratio")
-        ax.grid(alpha=0.25)
-    axes[0].set_ylabel("CDF")
+        ax.grid(axis="y", which="both", alpha=0.25)
+    axes[0].set_ylabel("CDF (log scale)")
     handles = [
         plt.Line2D((0, 1), (0, 0), color=COLORS[method], linewidth=2)
         for method in METHODS
     ]
-    figure.suptitle("GEANT K=8 fulfill-ratio distributions", y=0.99)
+    figure.suptitle("GEANT K=8 normalized fulfill ratio CDF", y=0.99)
     figure.legend(
         handles,
         METHODS,
         loc="upper center",
         bbox_to_anchor=(0.5, 0.945),
-        ncol=4,
+        ncol=2,
         frameon=False,
     )
     figure.tight_layout(rect=(0, 0, 1, 0.87))
-    figure.savefig(output_dir / "geant_four_method_fulfill_cdf.png", dpi=180)
+    figure.savefig(output_dir / "geant_fulfill_cdf.png", dpi=180)
     plt.close(figure)
 
 
@@ -308,71 +290,116 @@ def build_change_table(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def plot_hattrick_change(
-    data: dict[str, pd.DataFrame], changes: pd.DataFrame, output_dir: Path
-) -> None:
-    before = "Hattrick (Baseline)"
-    after = "Hattrick (Optimized)"
-    labels = ["Baseline", "Optimized"]
-    colors = [COLORS[before], COLORS[after]]
-    x = np.arange(len(CLASSES))
-    width = 0.36
-    figure, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    for ax, statistic, title in (
-        (axes[0, 0], "mean", "Mean fulfill ratio"),
-        (axes[0, 1], "p10", "P10 fulfill ratio"),
-    ):
-        for index, method in enumerate((before, after)):
-            values = [get_value(data["fulfill"], method, statistic, cls) for cls in CLASSES]
-            ax.bar(x + (index - 0.5) * width, values, width, label=labels[index], color=colors[index])
-        ax.set_xticks(x, CLASSES)
-        ax.set_title(title)
-        ax.set_ylabel("Ratio")
-        ax.grid(axis="y", alpha=0.25)
-
-    mlu_stats = ["mean", "median", "p95"]
-    mlu_x = np.arange(len(CLASSES) * len(mlu_stats))
-    tick_labels = [f"{cls}\n{stat.upper()}" for cls in CLASSES for stat in mlu_stats]
-    for index, method in enumerate((before, after)):
-        values = [
-            (get_value(data["mlu"], method, stat, cls) - 1.0) * 1000.0
-            for cls in CLASSES
-            for stat in mlu_stats
+def plot_fulfill_boxplot(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
+    per_snapshot = ordered(data["per_snapshot"])
+    figure, axes = plt.subplots(1, 3, figsize=(12.8, 4.0))
+    for ax, traffic_class in zip(axes, CLASSES):
+        series = [
+            per_snapshot.loc[
+                (per_snapshot["scheme"] == method)
+                & (per_snapshot["traffic_class"] == traffic_class),
+                "normalized_fulfill_ratio",
+            ].dropna().to_numpy(dtype=float)
+            for method in METHODS
         ]
-        axes[1, 0].bar(
-            mlu_x + (index - 0.5) * width, values, width, label=labels[index], color=colors[index]
+        box = ax.boxplot(
+            series,
+            positions=[0, 1],
+            widths=0.52,
+            patch_artist=True,
+            showfliers=False,
+            whis=(1, 99),
+            medianprops={"color": "white", "linewidth": 1.4},
         )
-    axes[1, 0].set_xticks(mlu_x, tick_labels)
-    axes[1, 0].set_title("Normalized MLU excess over oracle (lower is better)")
-    axes[1, 0].set_ylabel("(Normalized MLU - 1) x 1000")
-    axes[1, 0].grid(axis="y", alpha=0.25)
+        for patch, method in zip(box["boxes"], METHODS):
+            patch.set_facecolor(COLORS[method])
+            patch.set_edgecolor(COLORS[method])
+            patch.set_alpha(0.9)
+        combined = np.concatenate(series)
+        lower, upper = np.percentile(combined, [1, 99])
+        padding = max((upper - lower) * 0.12, 1e-7)
+        ax.set_ylim(lower - padding, upper + padding)
+        ax.axhline(1.0, color="#666666", linestyle="--", linewidth=1)
+        ax.ticklabel_format(style="plain", axis="y", useOffset=False)
+        ax.set_xticks([0, 1], ["Baseline", "Optimized"])
+        ax.set_title(f"{traffic_class} class")
+        ax.grid(axis="y", alpha=0.25)
+    axes[0].set_ylabel("Normalized fulfill ratio\n(zoomed to P1-P99)")
+    figure.suptitle("GEANT normalized fulfill ratio (P1-P99 boxplot)", y=0.99)
+    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    figure.savefig(output_dir / "geant_fulfill_boxplot.png", dpi=180)
+    plt.close(figure)
 
-    runtime_stats = ["mean", "median", "p95"]
-    runtime_x = np.arange(len(runtime_stats))
-    for index, method in enumerate((before, after)):
-        values = [get_value(data["runtime"], method, stat) * 1000 for stat in runtime_stats]
-        bars = axes[1, 1].bar(
-            runtime_x + (index - 0.5) * width, values, width, label=labels[index], color=colors[index]
-        )
-        axes[1, 1].bar_label(bars, fmt="%.2f", padding=3, fontsize=8)
-    axes[1, 1].set_xticks(runtime_x, [stat.upper() for stat in runtime_stats])
-    axes[1, 1].set_title("Hattrick inference time")
-    axes[1, 1].set_ylabel("Milliseconds per snapshot")
-    axes[1, 1].grid(axis="y", alpha=0.25)
 
-    handles = [plt.Rectangle((0, 0), 1, 1, color=color) for color in colors]
-    figure.suptitle("Hattrick before/after optimization", y=0.99)
+def plot_mlu_cdf(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
+    per_snapshot = ordered(data["per_snapshot"])
+    figure, axes = plt.subplots(1, 3, figsize=(13.2, 3.9), sharey=True)
+    for ax, traffic_class in zip(axes, CLASSES):
+        all_values = []
+        for method in METHODS:
+            values = per_snapshot.loc[
+                (per_snapshot["scheme"] == method)
+                & (per_snapshot["traffic_class"] == traffic_class),
+                "normalized_mlu",
+            ].dropna().to_numpy(dtype=float)
+            values = (values - 1.0) * 1000.0
+            all_values.append(values)
+            values = np.sort(values)
+            cumulative = np.arange(1, len(values) + 1) / len(values)
+            ax.plot(values, cumulative, color=COLORS[method], linewidth=2)
+        combined = np.concatenate(all_values)
+        lower, upper = np.percentile(combined, [0.5, 99.5])
+        padding = max((upper - lower) * 0.05, 0.01)
+        ax.set_xlim(lower - padding, upper + padding)
+        ax.axhline(0.01, color="#AAAAAA", linestyle=":", linewidth=0.8)
+        ax.axhline(0.10, color="#AAAAAA", linestyle=":", linewidth=0.8)
+        ax.set_title(f"{traffic_class} class")
+        ax.set_xlabel("(Normalized MLU - 1) x 1000")
+        ax.grid(axis="y", alpha=0.25)
+    axes[0].set_ylabel("CDF")
+    handles = [
+        plt.Line2D((0, 1), (0, 0), color=COLORS[method], linewidth=2)
+        for method in METHODS
+    ]
+    figure.suptitle("GEANT normalized MLU CDF (P0.5-P99.5 x-axis)", y=0.99)
     figure.legend(
         handles,
-        labels,
+        METHODS,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.95),
+        bbox_to_anchor=(0.5, 0.945),
         ncol=2,
         frameon=False,
     )
-    figure.tight_layout(rect=(0, 0, 1, 0.90))
-    figure.savefig(output_dir / "geant_hattrick_before_after.png", dpi=180)
+    figure.tight_layout(rect=(0, 0, 1, 0.87))
+    figure.savefig(output_dir / "geant_mlu_cdf.png", dpi=180)
+    plt.close(figure)
+
+
+def plot_runtime(data: dict[str, pd.DataFrame], output_dir: Path) -> None:
+    statistics = ["mean", "median", "p95"]
+    x = np.arange(len(statistics))
+    width = 0.36
+    figure, ax = plt.subplots(figsize=(7.2, 4.5))
+    all_values = []
+    for index, method in enumerate(METHODS):
+        values = [get_value(data["runtime"], method, statistic) * 1000 for statistic in statistics]
+        all_values.extend(values)
+        bars = ax.bar(
+            x + (index - 0.5) * width,
+            values,
+            width,
+            color=COLORS[method],
+            label=method,
+        )
+        ax.bar_label(bars, fmt="%.2f", padding=3, fontsize=9)
+    ax.set_ylim(min(all_values) - 0.8, max(all_values) + 0.8)
+    ax.set_xticks(x, [statistic.upper() for statistic in statistics])
+    ax.set_ylabel("Milliseconds per snapshot (zoomed axis)")
+    ax.set_title("GEANT Hattrick inference time")
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(frameon=True, edgecolor="#BBBBBB")
+    figure.tight_layout()
+    figure.savefig(output_dir / "geant_runtime.png", dpi=180)
     plt.close(figure)
 
 
@@ -442,9 +469,9 @@ def write_report(
             "relative_change_percent",
         ].iloc[0]
     )
-    report = f"""# GEANT K=8 unified comparison
+    report = f"""# GEANT K=8 Hattrick optimization comparison
 
-本目录把原始 Hattrick、Optimized Hattrick、BEST-MC 和 SWAN 放在同一口径下比较。测试区间为 `[8618, 10772)`，共 2154 个快照。
+本目录只比较原始 Hattrick 与 Optimized Hattrick。测试区间为 `[8618, 10772)`，共 2154 个快照。图表类型与基础实验/论文式汇总保持一致，并通过局部放大或对数坐标清晰展示两者差异。
 
 ## 一眼看结论
 
@@ -454,11 +481,11 @@ def write_report(
 - 三类平均 normalized MLU 分别变化：High `{delta('normalized_mlu', 'High', 'mean'):+.6f}`、Medium `{delta('normalized_mlu', 'Medium', 'mean'):+.6f}`、Low `{delta('normalized_mlu', 'Low', 'mean'):+.6f}`；负值表示更接近 Oracle。
 - 优化版 High 类 MLU 的 P99/最大值变差，因此平均与常见尾部改善不代表最极端异常点同步改善。
 
-![Four-method overview](geant_four_method_overview.png)
+![Fulfill-ratio CDF](geant_fulfill_cdf.png)
 
-![Fulfill-ratio CDF](geant_four_method_fulfill_cdf.png)
+![Fulfill-ratio boxplot](geant_fulfill_boxplot.png)
 
-![Hattrick before and after](geant_hattrick_before_after.png)
+![Fulfill-ratio table](geant_fulfill_table.png)
 
 ## Fulfill Ratio
 
@@ -468,32 +495,52 @@ def write_report(
 
 {markdown_table(['Method', 'Class', 'Mean', 'Median', 'P95', 'P99', 'Max'], mlu_rows)}
 
+![Normalized MLU CDF](geant_mlu_cdf.png)
+
 ## 推理/求解时间
 
 {markdown_table(['Method', 'Mean (ms)', 'Median (ms)', 'P95 (ms)'], runtime_rows)}
 
+![Inference time](geant_runtime.png)
+
 ## 口径说明
 
 - Fulfill Ratio 是相对 Gurobi ground-truth oracle 的归一化分级流量完成率，可用于观察接纳流量/最大流目标的接近程度。
-- Hattrick 的 MLU 是 full-demand 诊断值；SWAN/BEST-MC 的模拟器 MLU 在部分接纳后记录，口径不同，因此不做跨方法 MLU 柱状排名。
-- BEST-MC 和 SWAN 时间为三个顺序优先级阶段的总和。
+- Fulfill CDF 使用对数纵轴突出 P1/P10 尾部；CDF 定义和原始数据没有变化。
+- Fulfill 箱线图对每个流量类别分别缩放到 P1-P99；MLU CDF 的横轴缩放到 P0.5-P99.5，并保留完整 P99/Max 数值在表格中。
+- Runtime 图使用局部放大的毫秒纵轴，柱顶标注真实数值，不能将视觉高度差直接解释为数量级加速或减速。
 - 图表的源数据保存在本目录 CSV 文件中，可直接复核。
 """
     (output_dir / "README.md").write_text(report, encoding="utf-8")
+    (output_dir / "geant_report.md").write_text(report, encoding="utf-8")
 
 
 def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    stale_outputs = [
+        "geant_four_method_fulfill_cdf.png",
+        "geant_four_method_overview.png",
+        "geant_fulfill_comparison.csv",
+        "geant_hattrick_before_after.png",
+        "geant_mlu_comparison.csv",
+        "geant_runtime_comparison.csv",
+    ]
+    for name in stale_outputs:
+        path = args.output_dir / name
+        if path.is_file():
+            path.unlink()
     data = load_inputs(args.baseline_dir, args.optimized_dir)
     save_combined_csvs(data, args.output_dir)
     changes = build_change_table(data)
     changes.to_csv(args.output_dir / "geant_hattrick_change_summary.csv", index=False)
-    plot_overview(data, args.output_dir)
-    plot_cdf(data, args.output_dir)
-    plot_hattrick_change(data, changes, args.output_dir)
+    plot_fulfill_cdf(data, args.output_dir)
+    plot_fulfill_boxplot(data, args.output_dir)
+    plot_fulfill_table(data, args.output_dir)
+    plot_mlu_cdf(data, args.output_dir)
+    plot_runtime(data, args.output_dir)
     write_report(data, changes, args.output_dir)
-    print(f"Wrote unified GEANT comparison to {args.output_dir}")
+    print(f"Wrote Hattrick before/after comparison to {args.output_dir}")
 
 
 if __name__ == "__main__":
